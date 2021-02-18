@@ -45,7 +45,7 @@ void issue_stats(uint64_t * stat_latencies, char *path, int num_ops) {
     srand(time(NULL));
 
     for (i = 0; i < num_ops; i++) {
-        file_id = rand() % (NUM_FILES + 1);
+        file_id = rand() % NUM_FILES;
         
         memset(pathbuf, 0, sizeof pathbuf);
         snprintf (pathbuf, sizeof pathbuf, "%s/%d", path, file_id);
