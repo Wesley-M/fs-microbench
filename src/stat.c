@@ -15,11 +15,14 @@
 #define __STDC_FORMAT_MACRO
 #include <inttypes.h>
 
-#define ACCESS_PERMISSION 0777
-#define NUM_FILES 5
+#define NUM_FILES 100
 
-long random_offset (long file_length, int blksize) {
-    return (long) ((rand() / (double) RAND_MAX) * (file_length - blksize));
+uint64_t mean(uint64_t * numbers, size_t size) {
+    uint64_t sum = 0;
+    for (int i = 0; i < size; i++) {
+        sum += numbers[i];
+    }
+    return sum/size;
 }
 
 static uint64_t stamp (void) {
@@ -31,11 +34,10 @@ static uint64_t stamp (void) {
    return (tspec.tv_sec * 1000000000ULL) + tspec.tv_nsec;
 }
 
-// To run, make: ./a.out ./test <num_ops>
-
-void issue_stats(char *path, int num_ops) {
+void issue_stats(uint64_t * stat_latencies, char *path, int num_ops) {
     
     int i, file_id = 0;
+    uint64_t begin, end;
     char pathbuf[256];
 
     struct stat st;
@@ -48,20 +50,49 @@ void issue_stats(char *path, int num_ops) {
         memset(pathbuf, 0, sizeof pathbuf);
         snprintf (pathbuf, sizeof pathbuf, "%s/%d", path, file_id);
 
-        printf("Making stat to %d \n", file_id);
+        begin = stamp();
 
         if (stat (pathbuf, &st) != 0) {
             printf("Can't make stat to %d", file_id);
         }
+
+        end = stamp();
+
+        // Saving latency
+        stat_latencies[i] = (end - begin);
     }
 }
 
+// Print latency(ies) in nanoseconds
+void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latency) {
+    if (detailed_latency) {
+        for (int i = 0; i < num_ops; i++) {
+            printf("%ld\n", stat_latencies[i]);
+        }
+    } else {
+        printf("%ld\n", mean(stat_latencies, num_ops));
+    }
+}
+
+// To run, make: ./a.out ./test <num_ops>
+
 int main (int argc, char* argv[]) {
 
+    int detailed_latency;
     char* path = argv[1];
     int num_ops = atoi (argv[2]);
 
-    issue_stats(path, num_ops);
+    if (strcmp (argv[3], "full-lat") == 0) {
+        detailed_latency = 1;
+    } else if (strcmp (argv[3], "res-lat") == 0) {
+        detailed_latency = 0;
+    }
+
+    uint64_t * stat_latencies = (uint64_t*) calloc (num_ops, sizeof(uint64_t));
+
+    issue_stats(stat_latencies, path, num_ops);
+
+    print_latencies(num_ops, stat_latencies, detailed_latency);
 
     return 0;
 }
