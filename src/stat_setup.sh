@@ -2,7 +2,7 @@
 
 # Script to create X files and Y files inside them
 
-# Path were the files will be created
+# Path where the files will be created
 PATH_NAME=.
 
 # Number of directories which will be created

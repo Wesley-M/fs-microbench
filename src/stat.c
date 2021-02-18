@@ -74,7 +74,7 @@ void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latenc
     }
 }
 
-// To run, make: ./a.out ./test <num_ops>
+// To run, type: ./a.out ./test <num_ops> full-lat|res-lat
 
 int main (int argc, char* argv[]) {
 
