@@ -15,11 +15,11 @@
 #define __STDC_FORMAT_MACRO
 #include <inttypes.h>
 
-#define NUM_FILES 100
+#define ACCESS_PERMISSION 0777
 
 uint64_t mean(uint64_t * numbers, size_t size) {
     uint64_t sum = 0;
-    for (int i = 0; i < size; i++) {
+    for (size_t i = 0; i < size; i++) {
         sum += numbers[i];
     }
     return sum/size;
@@ -28,15 +28,14 @@ uint64_t mean(uint64_t * numbers, size_t size) {
 static uint64_t stamp (void) {
    struct timespec tspec;
    if (clock_gettime (CLOCK_MONOTONIC, &tspec)) {
-       fprintf (stderr, "Error getting timestamp: %s\n", strerror(errno));
-       exit (EXIT_FAILURE);
+       perror("Error getting timestamp");
+       exit(EXIT_FAILURE);
    }
    return (tspec.tv_sec * 1000000000ULL) + tspec.tv_nsec;
 }
 
-void issue_stats(uint64_t * stat_latencies, char *path, int num_ops) {
-    
-    int i, file_id = 0;
+void issue_stats(uint64_t* stat_latencies, char *root_path, int num_ops, int num_dirs, int files_per_dir) {
+    int op, dir_id, file_id;
     uint64_t begin, end;
     char pathbuf[256];
 
@@ -44,27 +43,35 @@ void issue_stats(uint64_t * stat_latencies, char *path, int num_ops) {
 
     srand(time(NULL));
 
-    for (i = 0; i < num_ops; i++) {
-        file_id = rand() % NUM_FILES;
-        
-        memset(pathbuf, 0, sizeof pathbuf);
-        snprintf (pathbuf, sizeof pathbuf, "%s/%d", path, file_id);
+    for (op = 0; op < num_ops; ++op) {
+        dir_id = rand() % num_dirs;
+        file_id = rand() % files_per_dir;
+
+        snprintf(pathbuf, sizeof pathbuf, "%s/%d/%d", root_path, dir_id, file_id);
 
         begin = stamp();
 
-        if (stat (pathbuf, &st) != 0) {
-            printf("Can't make stat to %d", file_id);
+        if (stat(pathbuf, &st) != 0) {
+            stat_latencies[op] = -1;
+            fprintf(stderr, "Couldn't stat() to %s\n", pathbuf);
         }
 
         end = stamp();
 
         // Saving latency
-        stat_latencies[i] = (end - begin);
+        stat_latencies[op] = (end - begin);
     }
 }
 
 // Print latency(ies) in nanoseconds
 void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latency) {
+    for (int i = 0; i < num_ops; ++i) {
+        if (stat_latencies[i] == (uint64_t) -1) {
+            fprintf(stderr, "Ignoring latencies due stat() error(s).\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     if (detailed_latency) {
         for (int i = 0; i < num_ops; i++) {
             printf("%ld\n", stat_latencies[i]);
@@ -74,26 +81,58 @@ void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latenc
     }
 }
 
-// To run, type: ./a.out ./test <num_ops> full-lat|res-lat
+void create_file_tree(char* root_path, int num_dirs, int files_per_dir, int deep) {
+    char* dst_path = (char*) calloc(256, sizeof(char));
+    if (0 == deep) {
+        for (int file = 0; file < files_per_dir; ++file) {
+            sprintf(dst_path, "%s/%d", root_path, file);
+            if ((0 != mknod(dst_path, S_IFREG | ACCESS_PERMISSION, 0)) && (errno != EEXIST)) {
+                perror("Failed to create file");
+                exit(EXIT_FAILURE);
+            }
+        }
+    } else {
+        for (int dir = 0; dir < num_dirs; ++dir) {
+            sprintf(dst_path, "%s/%d", root_path, dir);
 
-int main (int argc, char* argv[]) {
+            if ((0 != mkdir(dst_path, ACCESS_PERMISSION)) && (errno != EEXIST)) {
+                perror("Failed to create directory");
+                exit(EXIT_FAILURE);
+            }
 
-    int detailed_latency;
-    char* path = argv[1];
-    int num_ops = atoi (argv[2]);
+            create_file_tree(dst_path, num_dirs, files_per_dir, deep - 1);
+        }
+    }
+}
 
-    if (strcmp (argv[3], "full-lat") == 0) {
-        detailed_latency = 1;
-    } else if (strcmp (argv[3], "res-lat") == 0) {
-        detailed_latency = 0;
+// To run, type: ./stat <path> <num_ops> <num_dirs> <files_per_dir> full-lat|res-lat
+int main(int argc, char* argv[]) {
+    if (argc < 6) {
+        fprintf(stderr, "Usage: ./stat <path> <num_ops> <num_dirs> <files_per_dir> full-lat|res-lat.\n");
+        exit(EXIT_FAILURE);
     }
 
+    char* path = argv[1];
+    int num_ops = atoi(argv[2]);
+    int num_dirs = atoi(argv[3]);
+    int files_per_dir = atoi(argv[4]);
+
+    int detailed_latency;
+    if (strcmp(argv[5], "full-lat") == 0) {
+        detailed_latency = 1;
+    } else if (strcmp(argv[5], "res-lat") == 0) {
+        detailed_latency = 0;
+    } else {
+        fprintf(stderr, "Invalid parameter %s, must be one of: full-lat or res-lat.\n", argv[5]);
+        exit(EXIT_FAILURE);
+    }
+
+    create_file_tree(path, num_dirs, files_per_dir, 1);
+
     uint64_t * stat_latencies = (uint64_t*) calloc (num_ops, sizeof(uint64_t));
-
-    issue_stats(stat_latencies, path, num_ops);
-
+    issue_stats(stat_latencies, path, num_ops, num_dirs, files_per_dir);
     print_latencies(num_ops, stat_latencies, detailed_latency);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
