@@ -52,8 +52,9 @@ void issue_stats(uint64_t* stat_latencies, char *root_path, int num_ops, int num
         begin = stamp();
 
         if (stat(pathbuf, &st) != 0) {
-            stat_latencies[op] = -1;
             fprintf(stderr, "Couldn't stat() to %s\n", pathbuf);
+            stat_latencies[op] = -1;
+            return;
         }
 
         end = stamp();
