@@ -17,6 +17,15 @@
 
 #define ACCESS_PERMISSION 0777
 
+typedef struct thread_stat_load {
+    int thread_id;
+    uint64_t* stat_latencies;
+    char *root_path;
+    int num_ops;
+    int num_dirs;
+    int files_per_dir;
+} thread_stat_load;
+
 uint64_t mean(uint64_t * numbers, size_t size) {
     uint64_t sum = 0;
     for (size_t i = 0; i < size; i++) {
@@ -64,9 +73,15 @@ void issue_stats(uint64_t* stat_latencies, char *root_path, int num_ops, int num
     }
 }
 
+static void* thread_init(void* args) {
+    thread_stat_load* load = (thread_stat_load*) args;
+    issue_stats(load->stat_latencies, load->root_path, load->num_ops, load->num_dirs, load->files_per_dir);
+    return NULL;
+}
+
 // Print latency(ies) in nanoseconds
-void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latency) {
-    for (int i = 0; i < num_ops; ++i) {
+void print_latencies(int latencies, uint64_t * stat_latencies, int detailed_latency) {
+    for (int i = 0; i < latencies; ++i) {
         if (stat_latencies[i] == (uint64_t) -1) {
             fprintf(stderr, "Ignoring latencies due stat() error(s).\n");
             exit(EXIT_FAILURE);
@@ -74,11 +89,11 @@ void print_latencies(int num_ops, uint64_t * stat_latencies, int detailed_latenc
     }
 
     if (detailed_latency) {
-        for (int i = 0; i < num_ops; i++) {
+        for (int i = 0; i < latencies; i++) {
             printf("%ld\n", stat_latencies[i]);
         }
     } else {
-        printf("%ld\n", mean(stat_latencies, num_ops));
+        printf("%ld\n", mean(stat_latencies, latencies));
     }
 }
 
@@ -108,8 +123,8 @@ void create_file_tree(char* root_path, int num_dirs, int files_per_dir, int deep
 
 // To run, type: ./stat <path> <num_ops> <num_dirs> <files_per_dir> full-lat|res-lat
 int main(int argc, char* argv[]) {
-    if (argc < 6) {
-        fprintf(stderr, "Usage: ./stat <path> <num_ops> <num_dirs> <files_per_dir> full-lat|res-lat.\n");
+    if (argc < 7) {
+        fprintf(stderr, "Usage: ./stat <path> <num_ops> <num_dirs> <files_per_dir> <num_threads> full-lat|res-lat\n");
         exit(EXIT_FAILURE);
     }
 
@@ -117,23 +132,42 @@ int main(int argc, char* argv[]) {
     int num_ops = atoi(argv[2]);
     int num_dirs = atoi(argv[3]);
     int files_per_dir = atoi(argv[4]);
+    int num_threads = atoi(argv[5]);
 
     int detailed_latency;
-    if (strcmp(argv[5], "full-lat") == 0) {
+    if (strcmp(argv[6], "full-lat") == 0) {
         detailed_latency = 1;
-    } else if (strcmp(argv[5], "res-lat") == 0) {
+    } else if (strcmp(argv[6], "res-lat") == 0) {
         detailed_latency = 0;
     } else {
-        fprintf(stderr, "Invalid parameter %s, must be one of: full-lat or res-lat.\n", argv[5]);
+        fprintf(stderr, "Invalid parameter %s, must be one of: full-lat or res-lat.\n", argv[6]);
         exit(EXIT_FAILURE);
     }
 
     create_file_tree(path, num_dirs, files_per_dir, 1);
 
-    uint64_t * stat_latencies = (uint64_t*) calloc (num_ops, sizeof(uint64_t));
-    issue_stats(stat_latencies, path, num_ops, num_dirs, files_per_dir);
-    print_latencies(num_ops, stat_latencies, detailed_latency);
+    thread_stat_load* load = (thread_stat_load*) malloc(num_threads * sizeof(struct thread_stat_load));
+    uint64_t* stat_latencies = (uint64_t*) calloc(num_ops * num_threads, sizeof(uint64_t));
 
+    for (int thread = 0; thread < num_threads; ++thread) {
+        load[thread].thread_id = thread;
+        load[thread].stat_latencies = &(stat_latencies[thread * num_ops]);
+        load[thread].root_path = path;
+        load[thread].num_ops = num_ops;
+        load[thread].num_dirs = num_dirs;
+        load[thread].files_per_dir = files_per_dir;
+    }
+
+    pthread_t* requesters = (pthread_t*) malloc (num_threads * sizeof (pthread_t));
+    for (int thread = 0; thread < num_threads; ++thread) {
+        pthread_create(&requesters[thread], NULL, thread_init, (void *) &load[thread]);
+    }
+
+    for (int thread = 0; thread < num_threads; ++thread) {
+        pthread_join(requesters[thread], NULL);
+    }
+
+    print_latencies(num_ops * num_threads, stat_latencies, detailed_latency);
     return EXIT_SUCCESS;
 }
 
