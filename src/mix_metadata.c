@@ -73,7 +73,7 @@ uint64_t * issue_mix(char *root_path, char * filename) {
 
     begin = stamp();
 
-    if ((0 != mknod(dst_path, S_IFREG | ACCESS_PERMISSION, 0)) && (errno != EEXIST)) {
+    if (0 != mknod(dst_path, S_IFREG | ACCESS_PERMISSION, 0)) {
         fprintf(stderr, "Couldn't mknod() to %s\n", dst_path);
         latencies[CREATE] = -1;
     } else {
