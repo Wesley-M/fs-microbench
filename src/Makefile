@@ -2,7 +2,7 @@ CC=gcc
 CCFLAGS += -g -Wall -Wextra
 
 # created to the list
-MAIN = rr rw seqr seqw background stat
+MAIN = rr rw seqr seqw background stat mix_metadata
 all : $(MAIN)
 
 rr.o : rr.c
@@ -40,6 +40,12 @@ stat.o : stat.c
 
 stat : stat.o
 	$(CC) $(CCFLAGS) $^ -o $@
+
+mix_metadata : mix_metadata.o
+	$(CC) $(CCFLAGS) $^ -o $@ -pthread -lrt -lm
+
+mix_metadata.o : mix_metadata.c
+	$(CC) $(CCFLAGS) -c mix_metadata.c
 
 clean :
 	rm -rf $(MAIN) *.o
