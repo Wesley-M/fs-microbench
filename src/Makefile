@@ -2,7 +2,7 @@ CC=gcc
 CCFLAGS += -g -Wall -Wextra
 
 # created to the list
-MAIN = rr rw seqr seqw background
+MAIN = rr rw seqr seqw background stat
 all : $(MAIN)
 
 rr.o : rr.c
@@ -33,6 +33,12 @@ background.o : background.c
 	$(CC) $(CCFLAGS) -c background.c
 
 background : background.o
+	$(CC) $(CCFLAGS) $^ -o $@
+
+stat.o : stat.c
+	$(CC) $(CCFLAGS) -c stat.c
+
+stat : stat.o
 	$(CC) $(CCFLAGS) $^ -o $@
 
 clean :
