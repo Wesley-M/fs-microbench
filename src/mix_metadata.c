@@ -16,6 +16,7 @@
 #include <inttypes.h>
 
 #define ACCESS_PERMISSION 0777
+#define NSEC 1000000000ULL
 
 typedef struct latencies {
     uint64_t* create;
@@ -42,6 +43,15 @@ latencies time_based_latencies;
 int detailed_latency;
 int time_based;
 
+/*
+ Gets the mean of an array
+
+ Params:
+  - numbers: Array of numbers
+  - size: Array size
+
+ Returns: The mean of the array elements
+*/
 uint64_t mean(uint64_t * numbers, size_t size) {
     uint64_t sum = 0;
     for (size_t i = 0; i < size; i++) {
@@ -50,15 +60,33 @@ uint64_t mean(uint64_t * numbers, size_t size) {
     return sum/size;
 }
 
+/*
+ Gets the current timestamp in nanoseconds
+
+ Params: none
+
+ Errors: It fails and exits the program if it's not possible to get the timestamp 
+ Returns: The current timestamp in nanoseconds
+*/
 static uint64_t stamp (void) {
    struct timespec tspec;
    if (clock_gettime (CLOCK_MONOTONIC, &tspec)) {
        perror("Error getting timestamp");
        exit(EXIT_FAILURE);
    }
-   return (tspec.tv_sec * 1000000000ULL) + tspec.tv_nsec;
+   return (tspec.tv_sec * NSEC) + tspec.tv_nsec;
 }
 
+/*
+ Issues a mix of three operations (create, stat, unlink)
+
+ Params:
+  - root_path: Path where the operations will occur
+  - filename: identification of the file in which the operations will occur
+
+ Errors: It fails and exits the program if one of the operations can't be made
+ Returns: Array containing each latency measured [create, stat, unlink]
+*/
 uint64_t * issue_mix(char *root_path, char * filename) {
     uint64_t begin, end;
     uint64_t * latencies = (uint64_t*) calloc(3, sizeof(uint64_t));
@@ -69,37 +97,31 @@ uint64_t * issue_mix(char *root_path, char * filename) {
 
     sprintf(dst_path, "%s/%s", root_path, filename);
 
-    // Measuring the create operation
-
     begin = stamp();
 
     if (0 != mknod(dst_path, S_IFREG | ACCESS_PERMISSION, 0)) {
         fprintf(stderr, "Couldn't mknod() to %s\n", dst_path);
-        latencies[CREATE] = -1;
+        exit(EXIT_FAILURE);
     } else {
         end = stamp();
         latencies[CREATE] = (end - begin);
     }
 
-    // Measuring the stat operation
-
     begin = stamp();
 
     if (stat(dst_path, &st) != 0) {
         fprintf(stderr, "Couldn't stat() to %s\n", dst_path);
-        latencies[STAT] = -1;
+        exit(EXIT_FAILURE);
     } else {
         end = stamp();
         latencies[STAT] = (end - begin);
     }
 
-    // Measuring the unlink operation
-
     begin = stamp();
 
     if (unlink(dst_path) != 0) {
         fprintf(stderr, "Couldn't unlink() to %s\n", dst_path);
-        latencies[UNLINK] = -1;
+        exit(EXIT_FAILURE);
     } else {
         end = stamp();
         latencies[UNLINK] = (end - begin);
@@ -108,14 +130,25 @@ uint64_t * issue_mix(char *root_path, char * filename) {
     return latencies;
 }
 
+/*
+ Issues a number of mixes (create, stat, unlink)
+ 
+ Params:
+  - root_path: Path where the operations will occur
+  - num_mixes: Number of mixes to be issued
+  - offset: It determines where the thread should write in the array of latencies
+  - thread_id: Thread identification
 
+ Errors: It fails and exits the program if one of the operations can't be made
+ Returns: none
+*/
 void issue_operation_based_mixes(char *root_path, int num_mixes, int offset, int thread_id) {
     int mix;
     char * filename = (char*) calloc(256, sizeof(char));
     uint64_t * latencies;
 
     for (mix = 0; mix < num_mixes; ++mix) {
-        snprintf(filename, sizeof filename, "%s-%d-%d", "mix", thread_id, mix);
+        snprintf(filename, sizeof filename, "mix-%d-%d", thread_id, mix);
 
         latencies = issue_mix(root_path, filename);
         op_based_latencies.create[mix+offset] = latencies[CREATE];
@@ -124,9 +157,20 @@ void issue_operation_based_mixes(char *root_path, int num_mixes, int offset, int
     }
 }
 
+/*
+ Issues mixes (create, stat, unlink) during a predefined time
+ 
+ Params:
+  - root_path: Path where the operation will occur
+  - user_defined_runtime: Time in which the mixes will be issued
+  - thread_id: Thread identification
+
+ Errors: none
+ Returns: none
+*/
 void issue_time_based_mixes(char *root_path, uint64_t user_defined_runtime, int thread_id) {
     uint64_t curr_runtime = 0;
-    uint64_t user_defined_runtime_ns = user_defined_runtime * 1000000000ULL;
+    uint64_t user_defined_runtime_ns = user_defined_runtime * NSEC;
 
     uint64_t creates = 0, create_latencies = 0;
     uint64_t stats = 0, stat_latencies = 0;
@@ -136,7 +180,7 @@ void issue_time_based_mixes(char *root_path, uint64_t user_defined_runtime, int 
     uint64_t * latencies;
 
     while(curr_runtime < user_defined_runtime_ns) {
-        snprintf(filename, sizeof filename, "%s-%d-%ld", "mix", thread_id, creates);
+        snprintf(filename, sizeof filename, "mix-%d-%ld", thread_id, creates);
 
         latencies = issue_mix(root_path, filename);
 
@@ -156,6 +200,15 @@ void issue_time_based_mixes(char *root_path, uint64_t user_defined_runtime, int 
     time_based_latencies.unlink[thread_id] = unlink_latencies/unlinks;
 }
 
+/*
+ Calls the job for the thread
+
+ Params:
+  - args: struct of thread load
+
+ Errors: none
+ Returns: NULL
+*/
 static void* thread_init(void* args) {
     thread_load* load = (thread_load*) args;
 
@@ -168,34 +221,25 @@ static void* thread_init(void* args) {
     return NULL;
 }
 
-// Print latency(ies) in nanoseconds. 
-// In case of time based execution, the output can be, depending on the latency flag:
-//    full-lat: average latencies for each thread (create, stat, unlink)
-//    res-lat: average latencies for all threads (create, stat, unlink)
-// In case of operation based execution, the output can be, depending on the latency flag:
-//    full-lat: all latencies of all thread (create, stat, unlink)
-//    res-lat: average latencies for all threads (create, stat, unlink)
+/*
+ Prints the latencies collected in nanoseconds.
+
+ The output depends on the latency and time flags being used:
+  - Time based execution (FLAG=time-based):
+     - Full latency (FLAG=full-lat): average latencies for each thread (create, stat, unlink)
+     - Resumed latency (FLAG=res-lat): one-line with the average latencies of all threads (create, stat, unlink)
+  - Operation based execution (FLAG=no-time):
+     - Full latency (FLAG=full-lat): all latencies of all thread (create, stat, unlink)
+     - Resumed latency (FLAG=res-lat): one-line with the average latencies of all threads (create, stat, unlink)
+
+ Params:
+  - latencies_out: struct of latencies to be printed
+  - size: number of latencies per array in the struct
+
+ Errors: none
+ Returns: none
+*/
 void print_latencies(struct latencies latencies_out, int size) {
-    int error = 0;
-    for (int i = 0; i < size; ++i) {
-        if (latencies_out.create[i] == (uint64_t) -1) {
-            fprintf(stderr, "Ignoring latencies due mknod() error(s).\n");
-            error = 1;
-        }
-        if (latencies_out.stat[i] == (uint64_t) -1) {
-            fprintf(stderr, "Ignoring latencies due stat() error(s).\n");
-            error = 1;
-        } 
-        if (latencies_out.unlink[i] == (uint64_t) -1) {
-            fprintf(stderr, "Ignoring latencies due unlink() error(s).\n");
-            error = 1;
-        }
-
-        if (error) {
-            exit(EXIT_FAILURE);
-        }
-    }
-
     if (detailed_latency) {
         for (int i = 0; i < size; i++) {
             printf("%ld,%ld,%ld\n", latencies_out.create[i], latencies_out.stat[i], latencies_out.unlink[i]);
@@ -208,37 +252,45 @@ void print_latencies(struct latencies latencies_out, int size) {
     }
 }
 
+/*
+ Evaluates whether the input is one of the two options given in the params
+ 
+ Params:
+  - input: user inputed value
+  - first_op: First option to the value
+  - second_op: Second option to the value
+
+ Error: It fails and exits the program if the input doesn't corresponds to any option 
+ Returns: 1 in case the input it is equal to the first option
+          0 otherwise 
+*/
+int parse_bool_flag(char * input, char * first_op, char * second_op) {
+    if (strcmp(input, first_op) == 0) {
+        return 1;
+    } else if (strcmp(input, second_op) == 0) {
+        return 0;
+    } else {
+        fprintf(stderr, "Invalid parameter %s, must be one of: %s or %s.\n", input, first_op, second_op);
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 5) {
         fprintf(stderr, "Usage: ./stat <path> <load_per_thread> <num_threads> full-lat|res-lat time-based|no-time\n");
         exit(EXIT_FAILURE);
     }
 
+    // Path in which the operations will take place
     char* path = argv[1];
-
-    // It can represent the time in seconds or number of mixes based in what flag
-    // is being used: time-based or no-time 
+    // Number of seconds (time-based) or number of mixes (no-time)
     int mix_load = atoi(argv[2]);
-
+    // Number of threads being used
     int num_threads = atoi(argv[3]);
-
-    if (strcmp(argv[4], "full-lat") == 0) {
-        detailed_latency = 1;
-    } else if (strcmp(argv[4], "res-lat") == 0) {
-        detailed_latency = 0;
-    } else {
-        fprintf(stderr, "Invalid parameter %s, must be one of: full-lat or res-lat.\n", argv[6]);
-        exit(EXIT_FAILURE);
-    }
-
-    if (strcmp(argv[5], "time-based") == 0) {
-        time_based = 1;
-    } else if (strcmp(argv[5], "no-time") == 0) {
-        time_based = 0;
-    } else {
-        fprintf(stderr, "Invalid parameter %s, must be one of: time-based or no-time.\n", argv[6]);
-        exit(EXIT_FAILURE);
-    }
+    // Whether the latency will be detailed or not
+    detailed_latency = parse_bool_flag(argv[4], "full-lat", "res-lat");
+    // Whether the operations will take place in a time defined by the user
+    time_based = parse_bool_flag(argv[5], "time-based", "no-time");
 
     thread_load* load = (thread_load*) malloc(num_threads * sizeof(struct thread_load));
 
