@@ -276,8 +276,8 @@ int parse_bool_flag(char * input, char * first_op, char * second_op) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: ./stat <path> <load_per_thread> <num_threads> full-lat|res-lat time-based|no-time\n");
+    if (argc < 6) {
+        fprintf(stderr, "Usage: ./mix_metadata <path> <load_per_thread> <num_threads> full-lat|res-lat time-based|no-time\n");
         exit(EXIT_FAILURE);
     }
 
