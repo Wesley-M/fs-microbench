@@ -80,7 +80,7 @@ error_t issue_stat(struct thread_stat_load* load) {
 static void* thread_init(void* args) {
     thread_stat_load* load = (thread_stat_load*) args;
 
-    while (load->elapsed_time_ns < load->maximum_time_ns && load->num_ops < load->max_ops) {
+    while ((load->elapsed_time_ns < load->maximum_time_ns) && (load->num_ops < load->max_ops)) {
         load->error = issue_stat(load);
         if (-1 == load->error) {
             fprintf(stderr, "Aborting on thread %d due stat() error.\n", load->thread_id);
@@ -162,10 +162,10 @@ void delete_file_tree(char* root_path, int num_dirs) {
     }
 }
 
-// To run, type: ./stat <path> <load> <num_dirs> <files_per_dir> full-lat|res-lat
+// To run, type: ./stat <path> <load> <num_dirs> <files_per_dir> full-lat|res-lat  time-based|no-time
 int main(int argc, char* argv[]) {
     if (argc < 7) {
-        fprintf(stderr, "Usage: ./stat <path> <load> <num_dirs> <files_per_dir> <num_threads> full-lat|res-lat\n");
+        fprintf(stderr, "Usage: ./stat <path> <load> <num_dirs> <files_per_dir> <num_threads> full-lat|res-lat  time-based|no-time.\n");
         exit(EXIT_FAILURE);
     }
 
