@@ -39,7 +39,7 @@ stat.o : stat.c
 	$(CC) $(CCFLAGS) -c stat.c
 
 stat : stat.o
-	$(CC) $(CCFLAGS) $^ -o $@
+	$(CC) $(CCFLAGS) $^ -o $@ -pthread -lrt -lm
 
 mix_metadata : mix_metadata.o
 	$(CC) $(CCFLAGS) $^ -o $@ -pthread -lrt -lm
