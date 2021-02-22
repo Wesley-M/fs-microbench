@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include <unistd.h> //usleep
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -18,6 +17,7 @@
 #include <inttypes.h>
 
 #define ACCESS_PERMISSION 0777
+#define SECOND_NS 1000000000UL
 
 typedef int8_t error_t;
 
@@ -65,17 +65,17 @@ error_t issue_stat(struct thread_stat_load* load) {
 
     end = stamp();
 
-    if (load->max_ops != UINT64_MAX) {
-        load->stat_latencies[load->num_ops] = end - begin;
-    }
-
-    ++load->num_ops;
     load->elapsed_time_ns += end - begin;
+    ++load->num_ops;
+
+    if (load->max_ops != UINT64_MAX) {
+        load->stat_latencies[load->num_ops - 1] = end - begin;
+    } else {
+        *(load->stat_latencies) = load->elapsed_time_ns / load->num_ops;
+    }
 
     return 0;
 }
-
-
 
 static void* thread_init(void* args) {
     thread_stat_load* load = (thread_stat_load*) args;
@@ -109,9 +109,9 @@ void print_latencies(thread_stat_load* load, int threads, int detailed_latency) 
     } else {    // show average of latencies
         uint64_t average = 0UL;
         uint64_t total_ops = 0UL;
-        for (int thread = 0; thread < threads; thread++) {
-            total_ops += load[thread].num_ops;
+        for (int thread = 0; thread < threads; ++thread) {
             average += load[thread].elapsed_time_ns;
+            total_ops += load[thread].num_ops;
         }
         printf("%ld\n", average / total_ops);
     }
@@ -218,7 +218,7 @@ int main(int argc, char* argv[]) {
             load[thread].num_dirs = num_dirs;
             load[thread].files_per_dir = files_per_dir;
             load[thread].elapsed_time_ns = 0UL;
-            load[thread].maximum_time_ns = stat_load;
+            load[thread].maximum_time_ns = stat_load * SECOND_NS;
             load[thread].error = 0;
         }
     } else {
