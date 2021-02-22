@@ -162,10 +162,40 @@ void delete_file_tree(char* root_path, int num_dirs) {
     }
 }
 
-// To run, type: ./stat <path> <load> <num_dirs> <files_per_dir> full-lat|res-lat  time-based|no-time
+/*
+ Evaluates whether the input is one of the two options given in the params
+ 
+ Params:
+  - input: user inputed value
+  - first_op: First option to the value
+  - second_op: Second option to the value
+  - exit_on_false: Defines whether the program exits when the input is not 
+                   equal to the first or second option
+
+ Error: It fails and exits the program if the input doesn't corresponds to any option 
+ Returns: 1 in case the input it is equal to the first option
+          0 in case the input it is equal to the second option
+          -1 otherwise, in case exit_on_false=0
+*/
+int parse_bool_flag(char * input, char * first_op, char * second_op, int exit_on_false) {
+    if (strcmp(input, first_op) == 0) {
+        return 1;
+    } else if (strcmp(input, second_op) == 0) {
+        return 0;
+    } else {
+        if (exit_on_false) {
+            fprintf(stderr, "Invalid parameter %s, must be one of: %s or %s.\n", input, first_op, second_op);
+            exit(EXIT_FAILURE);
+        } else {
+            return -1;
+        }
+    }
+}
+
+// To run, type: ./stat <path> <load> <num_dirs> <files_per_dir> full-lat|res-lat  time-based|no-time create|remove|bench
 int main(int argc, char* argv[]) {
     if (argc < 7) {
-        fprintf(stderr, "Usage: ./stat <path> <load> <num_dirs> <files_per_dir> <num_threads> full-lat|res-lat  time-based|no-time.\n");
+        fprintf(stderr, "Usage: ./stat <path> <load> <num_dirs> <files_per_dir> <num_threads> full-lat|res-lat  time-based|no-time create|remove|bench.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -179,76 +209,68 @@ int main(int argc, char* argv[]) {
     int files_per_dir = atoi(argv[4]);
     int num_threads = atoi(argv[5]);
 
-    int detailed_latency;
-    if (strcmp(argv[6], "full-lat") == 0) {
-        detailed_latency = 1;
-    } else if (strcmp(argv[6], "res-lat") == 0) {
-        detailed_latency = 0;
+    int detailed_latency = parse_bool_flag(argv[6], "full-lat", "res-lat", 1);
+    int time_based = parse_bool_flag(argv[7], "time-based", "no-time", 1);
+    int create_files = parse_bool_flag(argv[8], "create", "remove", 0);
+
+    if (create_files == 1) {
+        printf("Creating file tree...\n");
+        create_file_tree(path, num_dirs, files_per_dir, 1);
+        printf("File tree created!\n");
+    } else if (create_files == 0) {
+        printf("Deleting file tree...\n");
+        delete_file_tree(path, num_dirs);
+        printf("File tree deleted...\n");
     } else {
-        fprintf(stderr, "Invalid parameter %s, must be one of: full-lat or res-lat.\n", argv[6]);
-        exit(EXIT_FAILURE);
-    }
+        // Creating random seed
+        srand(time(NULL));
 
-    int time_based;
-    if (strcmp(argv[7], "time-based") == 0) {
-        time_based = 1;
-    } else if (strcmp(argv[7], "no-time") == 0) {
-        time_based = 0;
-    } else {
-        fprintf(stderr, "Invalid parameter %s, must be one of: time-based or no-time.\n", argv[7]);
-        exit(EXIT_FAILURE);
-    }
+        thread_stat_load* load = (thread_stat_load*) calloc(num_threads, sizeof(struct thread_stat_load));
 
-    create_file_tree(path, num_dirs, files_per_dir, 1);
-
-    // Creating random seed
-    srand(time(NULL));
-
-    thread_stat_load* load = (thread_stat_load*) calloc(num_threads, sizeof(struct thread_stat_load));
-
-    if (time_based) {
-        uint64_t* stat_latencies = (uint64_t*) calloc(num_threads, sizeof(uint64_t));
-        for (int thread = 0; thread < num_threads; ++thread) {
-            load[thread].thread_id = thread;
-            load[thread].stat_latencies = &(stat_latencies[thread]);
-            load[thread].stat_latencies_size = 1UL;
-            load[thread].root_path = path;
-            load[thread].num_ops = 0UL;
-            load[thread].max_ops = UINT64_MAX;
-            load[thread].num_dirs = num_dirs;
-            load[thread].files_per_dir = files_per_dir;
-            load[thread].elapsed_time_ns = 0UL;
-            load[thread].maximum_time_ns = stat_load * SECOND_NS;
-            load[thread].error = 0;
+        if (time_based) {
+            uint64_t* stat_latencies = (uint64_t*) calloc(num_threads, sizeof(uint64_t));
+            for (int thread = 0; thread < num_threads; ++thread) {
+                load[thread].thread_id = thread;
+                load[thread].stat_latencies = &(stat_latencies[thread]);
+                load[thread].stat_latencies_size = 1UL;
+                load[thread].root_path = path;
+                load[thread].num_ops = 0UL;
+                load[thread].max_ops = UINT64_MAX;
+                load[thread].num_dirs = num_dirs;
+                load[thread].files_per_dir = files_per_dir;
+                load[thread].elapsed_time_ns = 0UL;
+                load[thread].maximum_time_ns = stat_load * SECOND_NS;
+                load[thread].error = 0;
+            }
+        } else {
+            uint64_t * stat_latencies = (uint64_t*) calloc(num_threads * stat_load, sizeof(uint64_t));
+            for (int thread = 0; thread < num_threads; ++thread) {
+                load[thread].thread_id = thread;
+                load[thread].stat_latencies = &(stat_latencies[thread * stat_load]);
+                load[thread].stat_latencies_size = stat_load;
+                load[thread].root_path = path;
+                load[thread].num_ops = 0UL;
+                load[thread].max_ops = stat_load;
+                load[thread].num_dirs = num_dirs;
+                load[thread].files_per_dir = files_per_dir;
+                load[thread].elapsed_time_ns = 0UL;
+                load[thread].maximum_time_ns = UINT64_MAX;
+                load[thread].error = 0;
+            }
         }
-    } else {
-        uint64_t * stat_latencies = (uint64_t*) calloc(num_threads * stat_load, sizeof(uint64_t));
+
+        pthread_t* requesters = (pthread_t*) malloc(num_threads * sizeof(pthread_t));
         for (int thread = 0; thread < num_threads; ++thread) {
-            load[thread].thread_id = thread;
-            load[thread].stat_latencies = &(stat_latencies[thread * stat_load]);
-            load[thread].stat_latencies_size = stat_load;
-            load[thread].root_path = path;
-            load[thread].num_ops = 0UL;
-            load[thread].max_ops = stat_load;
-            load[thread].num_dirs = num_dirs;
-            load[thread].files_per_dir = files_per_dir;
-            load[thread].elapsed_time_ns = 0UL;
-            load[thread].maximum_time_ns = UINT64_MAX;
-            load[thread].error = 0;
+            pthread_create(&requesters[thread], NULL, thread_init, (void*) &load[thread]);
         }
-    }
 
-    pthread_t* requesters = (pthread_t*) malloc(num_threads * sizeof(pthread_t));
-    for (int thread = 0; thread < num_threads; ++thread) {
-        pthread_create(&requesters[thread], NULL, thread_init, (void*) &load[thread]);
-    }
+        for (int thread = 0; thread < num_threads; ++thread) {
+            pthread_join(requesters[thread], NULL);
+        }
 
-    for (int thread = 0; thread < num_threads; ++thread) {
-        pthread_join(requesters[thread], NULL);
-    }
+        print_latencies(load, num_threads, detailed_latency);
 
-    print_latencies(load, num_threads, detailed_latency);
-    delete_file_tree(path, num_dirs);
+    }
 
     return EXIT_SUCCESS;
 }
